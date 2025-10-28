@@ -1,0 +1,338 @@
+// ============================================================================
+// Telemedicine Appointment & Consultation Platform
+// Database Schema Design - MVP Approach
+// ============================================================================
+// Total Tables: 12 (7 Core + 5 Optional)
+// Core Functions: 2 (Appointment Scheduling + Video Consultation)
+// Development Timeline: 8 Weeks (1 Person)
+// Documentation: https://dbml.dbdiagram.io/docs
+// ============================================================================
+
+// IMPLEMENTATION STRATEGY:
+// - Weeks 1-6: Implement 7 CORE tables for 2 core functions
+// - Weeks 7-8: Add 5 OPTIONAL tables if time permits (prescriptions, medical history)
+
+// ============================================
+// USER MANAGEMENT (4 tables)
+// ✅ CORE: users, patients, doctors (Week 1-2)
+// ⭐ OPTIONAL: admins (Week 7-8)
+// ============================================
+
+Table users {
+  id integer [primary key, increment]
+  email varchar(255) [unique, not null]
+  password_hash varchar(255) [not null, note: 'Bcrypt hashed password']
+  role varchar(20) [not null, note: 'Values: patient, doctor, admin']
+  is_active boolean [default: true]
+  is_verified boolean [default: false, note: 'Email verification status']
+  verification_token varchar(255) [null]
+  reset_token varchar(255) [null, note: 'Password reset token']
+  reset_token_expiry timestamp [null]
+  last_login timestamp [null]
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+
+  indexes {
+    email
+    role
+    (email, role)
+  }
+
+  Note: '''
+  ✅ CORE TABLE (Week 1-2)
+  Authentication and authorization for all users
+  Required for: UC1 (Register), UC2 (Login), UC3 (Logout)
+  '''
+}
+
+Table patients {
+  id integer [primary key, increment]
+  user_id integer [not null, unique]
+  first_name varchar(100) [not null]
+  last_name varchar(100) [not null]
+  date_of_birth date [not null]
+  gender varchar(20) [note: 'Values: male, female, other']
+  phone varchar(20) [not null]
+  address text
+  city varchar(100)
+  country varchar(100)
+  profile_picture varchar(255) [null]
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+  
+  indexes {
+    user_id
+    phone
+    (first_name, last_name)
+  }
+}
+
+Table doctors {
+  id integer [primary key, increment]
+  user_id integer [not null, unique]
+  first_name varchar(100) [not null]
+  last_name varchar(100) [not null]
+  specialization varchar(100) [not null, note: 'e.g., Cardiology, Dermatology, General Medicine']
+  qualification varchar(255) [not null, note: 'e.g., MBBS, MD, PhD']
+  experience_years integer [not null]
+  consultation_fee decimal(10,2) [not null, default: 50.00]
+  bio text [note: 'Doctor profile description']
+  profile_picture varchar(255) [null]
+  rating decimal(3,2) [default: 0, note: 'Average rating 0-5']
+  total_reviews integer [default: 0]
+  is_available boolean [default: true]
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+  
+  indexes {
+    user_id
+    specialization
+    rating
+    (specialization, rating)
+  }
+}
+
+Table admins {
+  id integer [primary key, increment]
+  user_id integer [not null, unique]
+  first_name varchar(100) [not null]
+  last_name varchar(100) [not null]
+  phone varchar(20)
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+}
+
+// ============================================
+// APPOINTMENT SYSTEM (2 tables)
+// ✅ CORE: appointments, doctor_availability (Week 3-5)
+// CORE FUNCTION 1: Intelligent Appointment Scheduling
+// ============================================
+
+Table appointments {
+  id integer [primary key, increment]
+  patient_id integer [not null]
+  doctor_id integer [not null]
+  appointment_date date [not null]
+  start_time time [not null]
+  end_time time [not null]
+  status varchar(20) [not null, default: 'pending', note: 'Values: pending, confirmed, completed, cancelled']
+  reason_for_visit text [not null]
+  symptoms text [null]
+  
+  // Video consultation details (merged from separate table)
+  video_room_id varchar(255) [null, note: 'Jitsi/Twilio room identifier']
+  video_room_url varchar(500) [null, note: 'Full video conference URL']
+  patient_joined_at timestamp [null]
+  doctor_joined_at timestamp [null]
+  consultation_notes text [null, note: 'Doctor notes from consultation']
+  
+  // Payment details (merged from separate table)
+  payment_amount decimal(10,2) [not null]
+  payment_status varchar(20) [default: 'unpaid', note: 'Values: unpaid, paid, refunded']
+  payment_method varchar(50) [null, note: 'e.g., card, paypal']
+  transaction_id varchar(255) [null, note: 'Stripe transaction ID']
+  paid_at timestamp [null]
+  
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+  
+  indexes {
+    patient_id
+    doctor_id
+    appointment_date
+    status
+    (doctor_id, appointment_date, start_time) [unique, note: 'Prevent double booking']
+    (patient_id, appointment_date)
+    transaction_id
+  }
+
+  Note: '''
+  ✅ CORE TABLE (Week 3-5)
+  Consolidated table for appointments, video details, and payments
+  Required for: UC11 (Book), UC12 (View), UC13 (Cancel), UC18 (Join Video), UC19 (Start Video)
+  Simplification: Combines appointments + video_consultations + payments into ONE table
+  '''
+}
+
+Table doctor_availability {
+  id integer [primary key, increment]
+  doctor_id integer [not null]
+  day_of_week integer [not null, note: '0=Sunday, 1=Monday, ..., 6=Saturday']
+  start_time time [not null]
+  end_time time [not null]
+  is_available boolean [default: true]
+  slot_duration integer [default: 30, note: 'Duration in minutes (30 or 60)']
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+  
+  indexes {
+    doctor_id
+    (doctor_id, day_of_week)
+  }
+  
+  Note: 'Doctor sets weekly recurring schedule. System generates available slots from this.'
+}
+
+// ============================================
+// PRESCRIPTION SYSTEM (3 tables)
+// ⭐ OPTIONAL: All prescription tables (Week 7-8)
+// STRETCH GOAL: Electronic Prescription Management
+// ============================================
+
+Table prescriptions {
+  id integer [primary key, increment]
+  appointment_id integer [not null]
+  patient_id integer [not null]
+  doctor_id integer [not null]
+  prescription_date date [not null, default: `now()`]
+  diagnosis text [not null]
+  notes text [note: 'General prescription notes and instructions']
+  pdf_url varchar(500) [null, note: 'Generated PDF prescription URL']
+  created_at timestamp [default: `now()`]
+  
+  indexes {
+    appointment_id
+    patient_id
+    doctor_id
+    prescription_date
+  }
+}
+
+Table prescription_items {
+  id integer [primary key, increment]
+  prescription_id integer [not null]
+  medication_id integer [not null]
+  dosage varchar(100) [not null, note: 'e.g., 500mg, 2 tablets, 10ml']
+  frequency varchar(100) [not null, note: 'e.g., Twice daily, Three times daily, Once at night']
+  duration varchar(50) [not null, note: 'e.g., 7 days, 2 weeks, 1 month']
+  instructions text [note: 'e.g., Take after meals, Take on empty stomach']
+  created_at timestamp [default: `now()`]
+  
+  indexes {
+    prescription_id
+    medication_id
+  }
+}
+
+Table medications {
+  id integer [primary key, increment]
+  name varchar(255) [not null]
+  generic_name varchar(255) [not null]
+  category varchar(100) [not null, note: 'e.g., Antibiotic, Painkiller, Antacid, Antiviral']
+  form varchar(50) [not null, note: 'e.g., Tablet, Capsule, Syrup, Injection']
+  strength varchar(50) [note: 'e.g., 500mg, 250mg/5ml']
+  common_interactions text [note: 'Brief note on common drug interactions for warnings']
+  is_active boolean [default: true]
+  
+  Note: 'Pre-populated with ~100 common medications'
+  
+  indexes {
+    name
+    category
+  }
+}
+
+// ============================================
+// MEDICAL HISTORY (1 table)
+// ⭐ OPTIONAL: medical_history (Week 7-8)
+// ============================================
+
+Table medical_history {
+  id integer [primary key, increment]
+  patient_id integer [not null]
+  condition_name varchar(255) [not null, note: 'e.g., Diabetes, Hypertension, Asthma, Allergies']
+  condition_type varchar(50) [note: 'Values: chronic_condition, allergy, past_surgery, family_history']
+  diagnosed_date date [null]
+  status varchar(20) [default: 'active', note: 'Values: active, resolved, managed']
+  severity varchar(20) [null, note: 'For allergies: mild, moderate, severe']
+  notes text
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+  
+  indexes {
+    patient_id
+    condition_type
+  }
+  
+  Note: 'Simplified - combines chronic conditions, allergies, and medical history in one table'
+}
+
+// ============================================
+// REVIEWS & RATINGS (1 table)
+// ✅ CORE: reviews (Week 5)
+// ============================================
+
+Table reviews {
+  id integer [primary key, increment]
+  appointment_id integer [not null, unique]
+  patient_id integer [not null]
+  doctor_id integer [not null]
+  rating integer [not null, note: 'Rating 1-5 stars']
+  review_text text [null]
+  professionalism_rating integer [null, note: '1-5 rating for professionalism']
+  communication_rating integer [null, note: '1-5 rating for communication']
+  is_anonymous boolean [default: false]
+  created_at timestamp [default: `now()`]
+  
+  indexes {
+    appointment_id
+    patient_id
+    doctor_id
+    rating
+  }
+}
+
+// ============================================
+// NOTIFICATIONS (1 table)
+// ✅ CORE: notifications (Week 3-5)
+// ============================================
+
+Table notifications {
+  id integer [primary key, increment]
+  user_id integer [not null]
+  type varchar(50) [not null, note: 'Values: appointment_confirmation, appointment_reminder, appointment_cancelled, prescription_ready, payment_success']
+  subject varchar(255) [not null]
+  message text [not null]
+  delivery_method varchar(20) [note: 'Values: email, sms, both']
+  is_sent boolean [default: false]
+  sent_at timestamp [null]
+  created_at timestamp [default: `now()`]
+  
+  indexes {
+    user_id
+    is_sent
+    type
+  }
+}
+
+// ============================================
+// RELATIONSHIPS
+// ============================================
+
+// User Management Relationships (1-to-1)
+Ref: patients.user_id > users.id [delete: cascade]
+Ref: doctors.user_id > users.id [delete: cascade]
+Ref: admins.user_id > users.id [delete: cascade]
+
+// Appointment Relationships
+Ref: appointments.patient_id > patients.id
+Ref: appointments.doctor_id > doctors.id
+Ref: doctor_availability.doctor_id > doctors.id [delete: cascade]
+
+// Prescription Relationships
+Ref: prescriptions.appointment_id > appointments.id
+Ref: prescriptions.patient_id > patients.id
+Ref: prescriptions.doctor_id > doctors.id
+Ref: prescription_items.prescription_id > prescriptions.id [delete: cascade]
+Ref: prescription_items.medication_id > medications.id
+
+// Medical History Relationships
+Ref: medical_history.patient_id > patients.id [delete: cascade]
+
+// Review Relationships
+Ref: reviews.appointment_id > appointments.id
+Ref: reviews.patient_id > patients.id
+Ref: reviews.doctor_id > doctors.id
+
+// Notification Relationships
+Ref: notifications.user_id > users.id

@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+model User {
+  id                Int       @id @default(autoincrement())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  role              String
+  isActive          Boolean   @default(true) @map("is_active")
+  isVerified        Boolean   @default(false) @map("is_verified")
+  verificationToken String?   @map("verification_token")
+  resetToken        String?   @map("reset_token")
+  resetTokenExpiry  DateTime? @map("reset_token_expiry")
+  lastLogin         DateTime? @map("last_login")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  patient       Patient?
+  doctor        Doctor?
+  admin         Admin?
+  notifications Notification[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Patient {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @unique @map("user_id")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  dateOfBirth    DateTime @map("date_of_birth") @db.Date
+  gender         String?
+  phone          String   @unique
+  address        String?
+  city           String?
+  country        String?
+  profilePicture String?  @map("profile_picture")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments   Appointment[]
+  prescriptions  Prescription[]
+  reviews        Review[]
+  medicalHistory MedicalHistory[]
+
+  @@index([userId])
+  @@index([phone])
+  @@map("patients")
+}
+
+model Doctor {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique @map("user_id")
+  firstName       String   @map("first_name")
+  lastName        String   @map("last_name")
+  specialization  String
+  qualification   String
+  experienceYears Int      @map("experience_years")
+  consultationFee Decimal  @default(50.00) @map("consultation_fee") @db.Decimal(10, 2)      
+  bio             String?
+  profilePicture  String?  @map("profile_picture")
+  rating          Decimal  @default(0) @db.Decimal(3, 2)
+  totalReviews    Int      @default(0) @map("total_reviews")
+  isAvailable     Boolean  @default(true) @map("is_available")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments  Appointment[]
+  availability  DoctorAvailability[]
+  prescriptions Prescription[]
+  reviews       Review[]
+
+  @@index([userId])
+  @@index([specialization])
+  @@index([rating])
+  @@map("doctors")
+}
+
+model Admin {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique @map("user_id")
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admins")
+}
+
+// ============================================
+// APPOINTMENT SYSTEM
+// ============================================
+
+model Appointment {
+  id                Int       @id @default(autoincrement())
+  patientId         Int       @map("patient_id")
+  doctorId          Int       @map("doctor_id")
+  appointmentDate   DateTime  @map("appointment_date") @db.Date
+  startTime         DateTime  @map("start_time") @db.Time
+  endTime           DateTime  @map("end_time") @db.Time
+  status            String    @default("pending")
+  reasonForVisit    String    @map("reason_for_visit") @db.Text
+  symptoms          String?   @db.Text
+  
+  // Video consultation details
+  videoRoomId       String?   @map("video_room_id")
+  videoRoomUrl      String?   @map("video_room_url")
+  patientJoinedAt   DateTime? @map("patient_joined_at")
+  doctorJoinedAt    DateTime? @map("doctor_joined_at")
+  consultationNotes String?   @map("consultation_notes") @db.Text
+
+  // Payment details
+  paymentAmount     Decimal   @map("payment_amount") @db.Decimal(10, 2)
+  paymentStatus     String    @default("unpaid") @map("payment_status")
+  paymentMethod     String?   @map("payment_method")
+  transactionId     String?   @map("transaction_id")
+  paidAt            DateTime? @map("paid_at")
+  
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  doctor       Doctor        @relation(fields: [doctorId], references: [id])
+  prescription Prescription?
+  review       Review?
+
+  @@unique([doctorId, appointmentDate, startTime])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([appointmentDate])
+  @@index([status])
+  @@index([patientId, appointmentDate])
+  @@index([transactionId])
+  @@map("appointments")
+}
+
+model DoctorAvailability {
+  id           Int      @id @default(autoincrement())
+  doctorId     Int      @map("doctor_id")
+  dayOfWeek    Int      @map("day_of_week")
+  startTime    DateTime @map("start_time") @db.Time
+  endTime      DateTime @map("end_time") @db.Time
+  isAvailable  Boolean  @default(true) @map("is_available")
+  slotDuration Int      @default(30) @map("slot_duration")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@index([doctorId, dayOfWeek])
+  @@map("doctor_availability")
+}
+
+// ============================================
+// REVIEWS & NOTIFICATIONS
+// ============================================
+
+model Review {
+  id                    Int      @id @default(autoincrement())
+  appointmentId         Int      @unique @map("appointment_id")
+  patientId             Int      @map("patient_id")
+  doctorId              Int      @map("doctor_id")
+  rating                Int
+  reviewText            String?  @map("review_text") @db.Text
+  professionalismRating Int?     @map("professionalism_rating")
+  communicationRating   Int?     @map("communication_rating")
+  isAnonymous           Boolean  @default(false) @map("is_anonymous")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  // Relations
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  patient     Patient     @relation(fields: [patientId], references: [id])
+  doctor      Doctor      @relation(fields: [doctorId], references: [id])
+
+  @@index([appointmentId])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([rating])
+  @@map("reviews")
+}
+
+model Notification {
+  id             Int       @id @default(autoincrement())
+  userId         Int       @map("user_id")
+  type           String
+  subject        String
+  message        String    @db.Text
+  deliveryMethod String?   @map("delivery_method")
+  isSent         Boolean   @default(false) @map("is_sent")
+  sentAt         DateTime? @map("sent_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([isSent])
+  @@index([type])
+  @@map("notifications")
+}
+
+// ============================================
+// PRESCRIPTION SYSTEM
+// ============================================
+
+model Prescription {
+  id               Int      @id @default(autoincrement())
+  appointmentId    Int      @unique @map("appointment_id")
+  patientId        Int      @map("patient_id")
+  doctorId         Int      @map("doctor_id")
+  prescriptionDate DateTime @default(now()) @map("prescription_date") @db.Date
+  diagnosis        String   @db.Text
+  notes            String?  @db.Text
+  pdfUrl           String?  @map("pdf_url")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  // Relations
+  appointment       Appointment        @relation(fields: [appointmentId], references: [id])
+  patient           Patient            @relation(fields: [patientId], references: [id])
+  doctor            Doctor             @relation(fields: [doctorId], references: [id])
+  prescriptionItems PrescriptionItem[]
+
+  @@index([appointmentId])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([prescriptionDate])
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id             Int      @id @default(autoincrement())
+  prescriptionId Int      @map("prescription_id")
+  medicationId   Int      @map("medication_id")
+  dosage         String
+  frequency      String
+  duration       String
+  instructions   String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  medication   Medication   @relation(fields: [medicationId], references: [id])
+
+  @@index([prescriptionId])
+  @@index([medicationId])
+  @@map("prescription_items")
+}
+
+model Medication {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  genericName        String   @map("generic_name")
+  category           String
+  form               String
+  strength           String?
+  commonInteractions String?  @map("common_interactions") @db.Text
+  isActive           Boolean  @default(true) @map("is_active")
+
+  // Relations
+  prescriptionItems PrescriptionItem[]
+
+  @@index([name])
+  @@index([category])
+  @@map("medications")
+}
+
+// ============================================
+// MEDICAL HISTORY
+// ============================================
+
+model MedicalHistory {
+  id            Int       @id @default(autoincrement())
+  patientId     Int       @map("patient_id")
+  conditionName String    @map("condition_name")
+  conditionType String?   @map("condition_type")
+  diagnosedDate DateTime? @map("diagnosed_date") @db.Date
+  status        String    @default("active")
+  severity      String?
+  notes         String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)       
+
+  @@index([patientId])
+  @@index([conditionType])
+  @@map("medical_history")
+}
